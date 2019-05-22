@@ -1,75 +1,74 @@
 package com.charleswritescode.flutter_plugin
 
-import android.app.Service
+import android.app.job.JobParameters
+import android.app.job.JobService
 import android.content.Intent
-import android.os.IBinder
 import android.preference.PreferenceManager
+import android.widget.Toast
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.PluginRegistry
 import io.flutter.view.FlutterCallbackInformation
 import io.flutter.view.FlutterMain
 import io.flutter.view.FlutterNativeView
 import io.flutter.view.FlutterRunArguments
 
-class BackgroundWorkService : Service() {
+class BackgroundWorkService : JobService() {
+    override fun onStopJob(params: JobParameters?): Boolean {
+        return false
+    }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
+    override fun onStartJob(params: JobParameters?): Boolean {
+        println("onStartJob")
+        initFlutterService(params!!)
+        return false
+    }
+
+    companion object {
+
+        @JvmStatic
+        private lateinit var sPluginRegistrantCallback: PluginRegistry.PluginRegistrantCallback
+
+        @JvmStatic
+        fun setPluginRegistrant(callback: PluginRegistry.PluginRegistrantCallback) {
+            sPluginRegistrantCallback = callback
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        FlutterMain.ensureInitializationComplete(applicationContext, null)
     }
 
     private lateinit var backgroundMethodChannel: MethodChannel
 
     private var flutterView: FlutterNativeView? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        super.onStartCommand(intent, flags, startId)
-
-        if(intent!!.action == "EXECUTE_CODE") {
-            val codeCallbackHandle = intent.getLongExtra(FlutterPlugin.CODE_CALLBACK_HANDLE_KEY,0)
-            val num1 = intent.getLongExtra("num1",-1)
-            val num2 = intent.getLongExtra("num2", -1)
-
-            backgroundMethodChannel.invokeMethod("", listOf(codeCallbackHandle, num1, num2), object : MethodChannel.Result {
-                override fun notImplemented() {
-                    println("method not implemented")
-                }
-
-                override fun error(p0: String?, p1: String?, p2: Any?) {
-                    println("ERROR: ${p0} ${p1} ${p2}")
-                }
-
-                override fun success(result: Any?) {
-                    println("Result of operation: $result")
-                }
-
-            })
-        }
-
-        return START_STICKY_COMPATIBILITY
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-    }
-
-    override fun onCreate() {
-        super.onCreate()
-        initFlutterService()
-    }
+    private var initialized = false
 
 
-    private fun initFlutterService() {
+    private fun initFlutterService(params: JobParameters) {
 
+        println("initFlutterService")
 
         val callbackHandle = PreferenceManager.getDefaultSharedPreferences(this).getLong(FlutterPlugin.DISPATCHER_CALLBACK_HANDLE_KEY, -1)
         val callbackInfo = FlutterCallbackInformation.lookupCallbackInformation(callbackHandle)
 
+        println(callbackHandle)
+        println(callbackInfo)
+
         if (flutterView == null) {
 
-            flutterView = FlutterNativeView(this, true)
+            println("Creating flutter background view")
+            flutterView = FlutterNativeView(applicationContext, true)
 
 
+            println("Registering plugins")
+            val registry = flutterView!!.pluginRegistry
+            sPluginRegistrantCallback.registerWith(registry)
+
+            println("Creating flutter arguments")
             val args = FlutterRunArguments()
-            args.bundlePath = FlutterMain.findAppBundlePath(this)
+            args.bundlePath = FlutterMain.findAppBundlePath(applicationContext)
             args.entrypoint = callbackInfo.callbackName
             args.libraryPath = callbackInfo.callbackLibraryPath
 
@@ -82,13 +81,48 @@ class BackgroundWorkService : Service() {
         backgroundMethodChannel.setMethodCallHandler { methodCall, result ->
             when (methodCall.method) {
                 "initialized" -> {
+
+                    println("Initialized")
+                    initialized = true
+
+                    executeCode(params)
+
                     result.success("")
                 }
                 else -> {
-                    print("Not implemented ${methodCall.method}")
+                    println("Not implemented ${methodCall.method}")
                     result.notImplemented()
                 }
             }
         }
+    }
+
+    private fun executeCode(params: JobParameters) {
+        println("executeCode")
+
+        val codeCallbackHandle = PreferenceManager.getDefaultSharedPreferences(this).getLong(FlutterPlugin.CODE_CALLBACK_HANDLE_KEY,-1)
+        val num1 = params.extras.getLong("num1",-1)
+        val num2 = params.extras.getLong("num2", -1)
+
+        println("invokeMethod")
+        backgroundMethodChannel.invokeMethod("", listOf(codeCallbackHandle, num1, num2), object : MethodChannel.Result {
+            override fun notImplemented() {
+                println("method not implemented")
+                jobFinished(params, true)
+            }
+
+            override fun error(p0: String?, p1: String?, p2: Any?) {
+                println("ERROR: ${p0} ${p1} ${p2}")
+                jobFinished(params, true)
+            }
+
+            override fun success(result: Any?) {
+                println("Result of invokeMethod: $result")
+                Toast.makeText(this@BackgroundWorkService, result?.toString(), Toast.LENGTH_SHORT).show()
+                jobFinished(params, false)
+            }
+
+        })
+
     }
 }

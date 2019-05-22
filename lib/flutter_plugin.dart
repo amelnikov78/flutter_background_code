@@ -12,7 +12,9 @@ class FlutterPlugin {
 
   static Future<void> initBackgroundService() async {
     CallbackHandle handle = PluginUtilities.getCallbackHandle(callbackDispatcher);
-    await _channel.invokeMethod("initService", [handle.toRawHandle()]);
+    CallbackHandle codeCallbackHandle = PluginUtilities.getCallbackHandle(addNumbers);
+
+    await _channel.invokeMethod("initService", [handle.toRawHandle(), codeCallbackHandle.toRawHandle()]);
   }
 
   static Future<String> get platformVersion async {
@@ -21,8 +23,7 @@ class FlutterPlugin {
   }
 
   static void executeCode(int num1, int num2) {
-    CallbackHandle codeCallbackHandle = PluginUtilities.getCallbackHandle(addNumbers);
-    _channel.invokeMethod("executeCode", [codeCallbackHandle.toRawHandle(), num1, num2]);
+    _channel.invokeMethod("executeCode", [num1, num2]);
   }
 }
 
@@ -32,7 +33,9 @@ int addNumbers(int num1, int num2) {
 
 void callbackDispatcher() {
 
-    WidgetsFlutterBinding.ensureInitialized();
+  print("Calling ensureInitialized");
+  WidgetsFlutterBinding.ensureInitialized();
+  print("After ensureInitialized");
 
   FlutterPlugin._backroundChannel.setMethodCallHandler((call) async {
     Function callback = PluginUtilities.getCallbackFromHandle(CallbackHandle.fromRawHandle(call.arguments[0] as int));
@@ -42,5 +45,6 @@ void callbackDispatcher() {
 
     return callback(num1, num2);
   });
+
   FlutterPlugin._backroundChannel.invokeMethod("initialized");
 }
