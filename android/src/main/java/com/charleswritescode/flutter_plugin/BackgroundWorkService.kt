@@ -2,7 +2,6 @@ package com.charleswritescode.flutter_plugin
 
 import android.app.job.JobParameters
 import android.app.job.JobService
-import android.content.Intent
 import android.preference.PreferenceManager
 import android.widget.Toast
 import io.flutter.plugin.common.MethodChannel
@@ -18,8 +17,7 @@ class BackgroundWorkService : JobService() {
     }
 
     override fun onStartJob(params: JobParameters?): Boolean {
-        println("onStartJob")
-        initFlutterService(params!!)
+        startDartBackgroundIsolate(params!!)
         return false
     }
 
@@ -36,6 +34,7 @@ class BackgroundWorkService : JobService() {
 
     override fun onCreate() {
         super.onCreate()
+        println("Initializing Flutter")
         FlutterMain.ensureInitializationComplete(applicationContext, null)
     }
 
@@ -46,15 +45,15 @@ class BackgroundWorkService : JobService() {
     private var initialized = false
 
 
-    private fun initFlutterService(params: JobParameters) {
+    private fun startDartBackgroundIsolate(params: JobParameters) {
 
-        println("initFlutterService")
-
+        println("Getting Callback for Dart code execution")
         val callbackHandle = PreferenceManager.getDefaultSharedPreferences(this).getLong(FlutterPlugin.DISPATCHER_CALLBACK_HANDLE_KEY, -1)
         val callbackInfo = FlutterCallbackInformation.lookupCallbackInformation(callbackHandle)
 
-        println(callbackHandle)
-        println(callbackInfo)
+        if(callbackInfo == null) {
+            throw  IllegalArgumentException("Could not find callback for ${callbackHandle}")
+        }
 
         if (flutterView == null) {
 
@@ -66,7 +65,7 @@ class BackgroundWorkService : JobService() {
             val registry = flutterView!!.pluginRegistry
             sPluginRegistrantCallback.registerWith(registry)
 
-            println("Creating flutter arguments")
+            println("Creating flutter view start arguments")
             val args = FlutterRunArguments()
             args.bundlePath = FlutterMain.findAppBundlePath(applicationContext)
             args.entrypoint = callbackInfo.callbackName
@@ -85,6 +84,7 @@ class BackgroundWorkService : JobService() {
                     println("Initialized")
                     initialized = true
 
+                    println("Running dart code in isolate")
                     executeCode(params)
 
                     result.success("")
@@ -98,13 +98,11 @@ class BackgroundWorkService : JobService() {
     }
 
     private fun executeCode(params: JobParameters) {
-        println("executeCode")
 
         val codeCallbackHandle = PreferenceManager.getDefaultSharedPreferences(this).getLong(FlutterPlugin.CODE_CALLBACK_HANDLE_KEY,-1)
         val num1 = params.extras.getLong("num1",-1)
         val num2 = params.extras.getLong("num2", -1)
 
-        println("invokeMethod")
         backgroundMethodChannel.invokeMethod("", listOf(codeCallbackHandle, num1, num2), object : MethodChannel.Result {
             override fun notImplemented() {
                 println("method not implemented")
@@ -118,7 +116,6 @@ class BackgroundWorkService : JobService() {
 
             override fun success(result: Any?) {
                 println("Result of invokeMethod: $result")
-                Toast.makeText(this@BackgroundWorkService, result?.toString(), Toast.LENGTH_SHORT).show()
                 jobFinished(params, false)
             }
 
